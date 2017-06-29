@@ -1,0 +1,318 @@
+畳み込みニューラルネットワーク(CNN)のCNTKによる実装例
+
+本文書では「4.8 畳み込みニューラルネットワーク(CNN)の処理性能」で要求されるディープラーニングフレームワークの実装例を示す。本実装例では、ディープラーニングフレームワークとしてCNTK[1]を用いる。CNTKのインストールはCNTKのインストールの解説ページ[2]に従って行う。訓練イメージおよび検証イメージはImageNetの配布元[3]から入手する。イメージの準備はImageNetから入手したILSVRC2012 012 Development kit (Task 1 & 2)に含まれるreadme.txtに従う。モデルの実装はCNTKのExamplesで提供されているResNet50を修正して使用する。本実装例で使用したプログラムおよび加工済みのメタデータはgithubで公開[4]している。
+
+[1] https://github.com/Microsoft/CNTK
+[2] https://docs.microsoft.com/en-us/cognitive-toolkit/setup-linux-binary-script
+[3] http://www.image-net.org/
+[4] https://github.com/aistairc/abci-benchmarks
+
+1. 訓練イメージおよび検証イメージの準備
+
+本節では、「4.8 畳み込みニューラルネットワーク(CNN)の処理性能」で使用するイメージの準備方法を解説する。イメージの準備は、(1) 配布元からのオリジナルイメージの入手と展開、(2) マップファイル作成の2段階の手順からなる。以下、順に説明する。
+
+(1) 配布元からの訓練イメージおよび検証イメージの入手と展開
+
+① ImageNetの配付元(http://www.image-net.org/)から、[Download Original Images] → [Download links to ILSVRC2012 image data] と辿り、ILSVRC2012のデータから、下表に示す3つのアーカイブを取得する。保存場所は imagenet1k/data とする。
+
+
+=====================================  ============================  ================================
+リンクテキスト                         ファイル名                         チェックサム(MD5)
+=====================================  ============================  ================================
+Development kit (Task 1 & 2). 2.5MB.   ILSVRC2012_devkit_t12.tar.gz  fa75699e90414af021442c21a62c3abf
+Training images (Task 1 & 2). 138GB.   ILSVRC2012_img_train.tar      1d675b47d978889d74fa0da5fadfb00e
+Validation images (all tasks). 6.3GB.  ILSVRC2012_img_val.tar        29b22e2961454d5413ddabcf34fc5622
+=====================================  ============================  ================================
+
+② 取得したアーカイブの展開
+手順①で取得した3つのファイルをデータ用ディレクトリ(以下、imagenet1k/data とする)に展開する。開発キット(ILSVRC2012_devkit_t12.tar.gz)はimagenet1k/dataに展開する。評価イメージ(ILSVRC2012_img_val.tar)はimagenet1k/data/valに展開する。訓練イメージ(ILSVRC2012_img_train.tar)はimagenet1k/data/trainに展開し、その展開結果はさらにWordNet ID(以下、WNID)ごとのアーカイブとなっているので、imagenet1k/data/trainの下にWNIDごとにサブディレクトリを作って再度展開する。
+
+アーカイブの展開作業は、以下に示す(i)ないし(ii)の手順のいずれかで行う。
+
+(i) 同梱のシェルスクリプト(tools/data-setup.sh)によりアーカイブを展開する。
+
+$ cd imagenet1k
+$ ls data
+ILSVRC2012_devkit_t12.tar.gz  ILSVRC2012_img_train.tar  ILSVRC2012_img_val.tar
+$ tools/data-setup.sh
+
+(ii) 以下の一連のコマンドによりアーカイブを展開する。
+
+$ cd imagenet1k/data
+$ ls
+ILSVRC2012_devkit_t12.tar.gz  ILSVRC2012_img_train.tar  ILSVRC2012_img_val.tar
+$ mkdir -p train val
+$ tar xzf ILSVRC2012_devkit_t12.tar.gz
+$ tar xfC ILSVRC2012_img_val.tar val
+$ tar xfC ILSVRC2012_img_train.tar train
+$ cd train && for f in *.tar; do
+    mkdir ${f%.tar}; tar xfC $f ${f%.tar}; rm $f
+  done
+
+上述の作業により、図1に示すディレクトリ構造が作成される。
+
+imagenet1k/data
+├── ILSVRC2012_devkit_t12.tar.gz
+├── ILSVRC2012_img_train.tar
+├── ILSVRC2012_img_val.tar
+├── ILSVRC2012_devkit_t12              # 画像のメタデータ等
+│   ├── COPYING
+│   ├── data
+│   │   ├── ILSVRC2012_validation_ground_truth.txt
+                                       # val のラベル(ISLVRC2012_ID)
+│   │   └── meta.mat                   # ISLVRC2012_IDとWNIDの対応表
+│   ├── evaluation                     # 本実装では使用しない
+│   │   ├── compute_overlap.m
+│   │   ├── demo_eval.m
+│   │   ├── demo.val.pred.det.txt
+│   │   ├── demo.val.pred.txt
+│   │   ├── eval_flat.m
+│   │   ├── eval_localization_flat.m
+│   │   ├── get_class2node.m
+│   │   ├── make_hash.m
+│   │   ├── VOCreadrecxml.m
+│   │   ├── VOCreadxml.m
+│   │   └── VOCxml2struct.m
+│   └── readme.txt                      # ILSVRC2012のデータの説明
+├── train                               # 学習イメージ
+│   ├── n01440764                       # WNID=n01440764の画像
+│   │   ├── n01440764_10026.JPEG
+│   │   ├── n01440764_10027.JPEG
+│   │       ...
+│   │   └── n01440764_9981.JPEG
+│   ├── n01443537                       # WNID=n01443537の画像
+│   │   ├── n01443537_10007.JPEG
+│   │   ├── n01443537_10014.JPEG
+│   │       ...
+│   │   └── n13133613_9988.JPEG
+│       ...
+│       └── n01855672_999.JPEG
+└── val                                 # 評価イメージ
+    ├── ILSVRC2012_val_00000001.JPEG
+    ├── ILSVRC2012_val_00000002.JPEG
+        ...
+    └── ILSVRC2012_val_00050000.JPEG
+
+図1. データのディレクトリ構成
+
+(2) CNTKから利用するためのマップファイルの作成
+
+CNTKは訓練イメージのパス名とラベルをtrain_map.txtから、評価イメージのパス名とラベルをval_map.txtから読み込む(以下、まとめてマップファイルと呼ぶ)。これらのマップファイルは、各行に画像イメージのパス名(ファイル名)とラベル(その画像が属するカテゴリ)の組を記述したファイルである。パス名にはCNTKの記法で$DATADIRからの相対パスであることを示す「.../」を前置する。区切り文字はタブである。以下に例を示す。
+
+List 1. 訓練イメージのマップファイル(train_map.txt)の例
+
+.../train/n01440764/n01440764_10026.JPEG        449
+.../train/n01440764/n01440764_10027.JPEG        449
+.../train/n01440764/n01440764_10029.JPEG        449
+...
+.../train/n15075141/n15075141_999.JPEG  889
+
+List 2. 評価イメージのマップファイル(val_map.txt)の例
+
+.../val/ILSVRC2012_val_00000001.JPEG    490
+.../val/ILSVRC2012_val_00000002.JPEG    361
+.../val/ILSVRC2012_val_00000003.JPEG    171
+...
+.../val/ILSVRC2012_val_00050000.JPEG    186
+
+ラベルには、開発キットに含まれるILSVRC2012_devkit_t12/readme.txt で説明されている ILSVRC2012_IDを使用する。ただし、CNTKで使用するラベルの範囲は0～999なので、ILSVRC2012_ID 1000 を 0 に読み変えるものとする。
+
+① 評価イメージのマップ(val_map.txt) の作成
+
+valディレクトリ以下の画像のILSVRC2012_IDはILSVRC2012_validation_ground_truth.txtに 格納されているので、valのファイル一覧とペアリングして、val_map.txtを作成する。
+
+val_map.txtの作成は、以下に示す(i)、(ii)、(iii)の手順のいずれかで行う。
+
+(i) 同梱のval_map.txtは上述の手順により生成したもので、このファイルを使用する。
+
+(ii) 同梱のシェルスクリプト(tools/make-map.sh)を使用する。このスクリプトは② 訓練イメージのマップ(train_map.txt) の作成も行う。
+
+$ cd imagenet1k
+$ tools/make-map.sh
+
+(iii) 以下の一連のコマンドにより訓練イメージのマップを作成する。
+
+$ cd imagenet1k
+$ sed 's/1000/0/' < \
+  data/ILSVRC2012_devkit_t12/data/ILSVRC2012_validation_ground_truth.txt \
+  > label.txt
+$ (cd data && find val -type f) | sort | sed 's/^/...\//' |
+  paste - label.txt > data/val_map.txt
+$ rm label.txt
+
+② 訓練イメージのマップ(train_map.txt) の作成
+
+ディレクトリtrain以下の JPEG ファイルの一覧にラベルを付与してtrain_map.txtを作成する。ラベルにはILSVRC2012_IDを使用する。JPEGファイルの名前は、WNID_integer.JPEGという形式になっている(※)ので、WNIDをファイル名から抽出し、ILSVRC2012_devkit_t12/meta.matを参照してILSVRC2012_IDに変換し、これをラベルとする。
+
+※ ILSVRC2012_devkit_t12/readme.txt 参照
+
+train_map.txtの作成は、以下に示す(i)、(ii)、(iii)の手順のいずれかで行う。
+
+(i) 同梱のtrain_map.txtは上述の手順により生成したもので、このファイルを使用する。
+
+(ii) 同梱のシェルスクリプト(tools/make-map.sh)を使用する。使用方法は、前項を参照のこと。
+
+(iii) 同梱のpython スクリプトtools/readmat.py(List.3参照)を使用し、以下のコマンドを実行する。
+
+$ (cd data && find train -name '*.JPEG') | sort |
+  python tools/readmat.py > data/train_map.txt
+
+List 3. readmat.py
+
+import scipy.io
+import sys
+
+mat = scipy.io.loadmat('data/ILSVRC2012_devkit_t12/data/meta.mat')
+synsets = mat['synsets']
+
+dic = {}
+
+for i in range(0, 1000):
+    synset = synsets[i]
+    ilsvrc2012_id = synset[0][0][0][0]
+    wnid = synset[0][1][0]
+    if ilsvrc2012_id == 1000:
+        ilsvrc2012_id = 0
+    dic[wnid] = ilsvrc2012_id
+
+for line in sys.stdin:
+    ls = line.split('/')
+    print('.../%s\t%s' % (line.strip('\n'), dic[ls[1]]))
+
+2. CNTKの実行と計測
+
+本節では、CNTKの準備・実行・計測方法を述べる。性能の計測は、(1) CNTKのインストール、(2) モデルのスクリプトの準備、(3)明度および平均データの準備、 (4) 計測の実行の4ステップからなる。以下、順に説明する。
+
+(1) CNTKのインストール
+
+CNTK[5] はCNTKのリリースページ[6]からCNTK for Linux v.2.0 GPUを入手し、CNTKのインストールの解説ページ[7]の説明に従ってインストールする。以下、本文書では、CNTKをインストールしたディレクトリを$CNTKROOTとする。
+
+[5] https://github.com/Microsoft/CNTK
+[6] https://github.com/Microsoft/CNTK/releases
+[7] https://docs.microsoft.com/en-us/cognitive-toolkit/setup-linux-binary-script
+
+(2) モデルのスクリプトの準備
+
+ResNet-50のモデルのスクリプトには、$CNTKROOT/Examplesに置かれている以下の2ファイルを使用する。
+
+======  ================================================================
+定義    Image/Classification/ResNet/BrainScript/ResNet50_ImageNet1K.cntk
+マクロ  Image/Classification/ResNet/BrainScript/Macros.bs
+======  ================================================================
+
+ResNet50_ImageNet1K.cntkは、List 4に示す示す修正を加える。
+
+List 4. ResNet50の定義ファイルの修正
+
+--- a/ResNet50_ImageNet1K.cntk
++++ b/ResNet50_ImageNet1K.cntk
+@@ -78,7 +78,7 @@ TrainNetwork = {
+         featureNodes    = (features)
+         labelNodes      = (labels)
+         criterionNodes  = (ce)
+-        evaluationNodes = (errs) # top5Errs only used in Eval
++        evaluationNodes = (errs:top5Errs) # top5Errs only used in Eval
+         outputNodes     = (z)
+     }
+
+上記2ファイルをimagenet1k/ResNet50_ImageNet1K.cntk、imagenet1k/Macros.bsに配置する。
+
+同梱のResNet50_ImageNet1K.cntkおよびMacros.bsは、上記の修正を適用済みのものである。
+
+(3) 明度データと平均データの前準備
+
+$CNTKROOT/Examplesに置かれているResNet-50で使用するILSVRC2012画像の明度と平均のデータ(下表)をimagenet1k/dataにコピーする。
+
+==========  ================================================
+明度データ  Image/DataSets/ImageNet/ImageNet1K_intensity.xml
+平均データ  Image/DataSets/ImageNet/ImageNet1K_mean.xml
+==========  ================================================
+
+同梱のdata/ImageNet1K_intensity.xmlおよびdata/ImageNet1K_mean.xmlは、上記ファイルのコピーである。
+
+(4) 計測の実行
+
+① 「単一スループットプロセッサ利用時」の計測
+
+単一スループットプロセッサを利用しての計測は、CNTKのアクティベイト後、同梱のrun-single.sh(List. 5)を実行する。実行時スタックは最低32MB必要である。
+
+$ source $CNTKROOT/activate-cntk
+$ cd imagenet1k
+$ ulimit -s 32767
+$ ./run-single.sh
+
+List. 5 run-single.sh
+
+#! /bin/sh
+
+echo "$(date +'%m/%d/%Y %H:%M:%S') Started"
+cntk configFile=ResNet50_ImageNet1K.cntk \
+  DataDir=./data \
+  OutputDir=Output/run-single.$$ \
+  TrainNetwork=[SGD=[maxEpochs=100]] \
+  TrainNetwork=[SGD=[minibatchSize=32]] \
+  stderr=- timestamping=true <&- 2>&1
+
+②「複数スループットプロセッサ利用時」の計測
+
+複数スループットプロセッサを利用しての計測は、CNTKのアクティベイト後、同梱のrun-parallel.sh(List.6) を実行する。run-parallel.shの設定は、8 node 32 GPU (4GPU/node)となっている。実行時スタックは最低32MB必要である。
+
+$ source $CNTKROOT/activate-cntk
+$ cd imagenet1k
+$ ulimit -s 32767
+$ ./run-parallel.sh
+
+List. 6 run-parallel.sh
+
+#! /bin/sh
+
+echo "$(date +'%m/%d/%Y %H:%M:%S') Started"
+mpirun -np 32 --npernode 4 \
+cntk configFile=ResNet50_ImageNet1K.cntk \
+  DataDir=./data \
+  OutputDir=Output/run-parallel.$$ \
+  TrainNetwork=[SGD=[maxEpochs=100]] \
+  TrainNetwork=[SGD=[minibatchSize=1024]] \
+  stderr=- timestamping=true <&- 2>&1
+
+③ 精度(accuracy)の計測
+
+精度の計測は、CNTKのログに含まれるCross Validationの結果を読み取ることで行う。List. 7に、CNTKのログの例を示す。この例では、第100 epoch後のCrossValidation(時刻06/14/2017 10:36:46の行)の結果、Top-1 errorが25.838%、Top-5 errorが8.340%であったと読みとれる。精度は100%からerrorを差し引いたものである。従って本例では、Top-1 accuracy が74.162%、Top-5 accuracy が91.660%である。
+
+List 7. ログの例
+
+06/13/2017 14:42:36 Started
+...
+06/14/2017 10:36:46: Finished Epoch[100 of 100]: [Validate] ce = 1.05934264 * 50000; errs = 25.838% * 50000; top5Errs = 8.340% * 50000
+06/14/2017 10:36:48: SGD: Saving checkpoint model '/local/aist-worker/imagenet1k/Output/job5-8-32.6370/Models/ResNet_50'
+06/14/2017 10:36:49: Action "train" complete.
+...
+
+④実行時間の計測
+
+実行時間の計測は、ログに含まれるタイムスタンプを読み取ることで行う。List. 7 の例では、実行開始(t0)が 06/13/2017 14:42:36、実行終了(t1)が 06/14/2017 10:36:49であるから、実行時間は t1-t0 = 71653 s となる。
+
+3. ファイル一覧
+
+========================================  ================================
+imagenet1k/
+imagenet1k/data/
+imagenet1k/data/ImageNet1K_intensity.xml  明度データ
+imagenet1k/data/ImageNet1K_mean.xml       平均データ
+imagenet1k/data/train_map.txt             訓練用データ (マップ)
+imagenet1k/data/val_map.txt               評価用データ (マップ)
+imagenet1k/data/train/
+imagenet1k/data/val/
+imagenet1k/Output/                        ※ CNTKによって作られる
+imagenet1k/Macros.bs                      モデル定義(マクロ)
+imagenet1k/ResNet50_ImageNet1K.cntk       モデル定義(修正済み)
+imagenet1k/COPYING
+imagenet1k/README                         このファイル
+imagenet1k/tools/data-setup.sh            ILSVRC2012のアーカイブを展開する
+imagenet1k/tools/make-map.sh              マップファイルを作成する
+imagenet1k/tools/readmat.py               train_map作成
+imagenet1k/run-single.sh                  1 GPU で実行する
+imagenet1k/run-parallel.sh                8 node 32 GPU で実行する
+========================================  ================================
+
+以上。
