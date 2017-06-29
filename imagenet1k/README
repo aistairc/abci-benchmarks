@@ -1,15 +1,45 @@
 畳み込みニューラルネットワーク(CNN)のCNTKによる実装例
 
-本文書では「4.8 畳み込みニューラルネットワーク(CNN)の処理性能」で要求されるディープラーニングフレームワークの実装例を示す。本実装例では、ディープラーニングフレームワークとしてCNTK[1]を用いる。CNTKのインストールはCNTKのインストールの解説ページ[2]に従って行う。訓練イメージおよび検証イメージはImageNetの配布元[3]から入手する。イメージの準備はImageNetから入手したILSVRC2012 012 Development kit (Task 1 & 2)に含まれるreadme.txtに従う。モデルの実装はCNTKのExamplesで提供されているResNet50を修正して使用する。本実装例で使用したプログラムおよび加工済みのメタデータはgithubで公開[4]している。
+本文書では「4.10 畳み込みニューラルネットワーク(CNN)の処理性能」で要求されるディープラーニングフレームワークの実装例を示す。本実装例では、ディープラーニングフレームワークとしてCNTK[1]を用いる。CNTKのインストールはCNTKのインストールの解説ページ[2]に従って行う。訓練イメージおよび検証イメージはImageNetの配布元[3]から入手する。イメージの準備はImageNetから入手したILSVRC2012 012 Development kit (Task 1 & 2)に含まれるreadme.txtに従う。モデルの実装はCNTKのExamplesで提供されているResNet50を修正して使用する。本実装例で使用したプログラムおよび加工済みのメタデータはgithubで公開[4]している。
 
 [1] https://github.com/Microsoft/CNTK
 [2] https://docs.microsoft.com/en-us/cognitive-toolkit/setup-linux-binary-script
 [3] http://www.image-net.org/
 [4] https://github.com/aistairc/abci-benchmarks
 
+実行手順の概略を以下に示す。詳細な手順は、1. 以下で述べる。
+
+(1) 以下の3つのアーカイブを imagenet1k/data 以下に保存する
+
+  ILSVRC2012_devkit_t12.tar.gz
+  ILSVRC2012_img_train.tar
+  ILSVRC2012_img_val.tar
+
+(2) CNTKを$CNTKROOTにインストールする
+
+(3) データを展開する
+
+$ cd imagenet1k
+$ tools/data-setup.sh
+$ tools/make-map.sh
+
+(4)「単一スループットプロセッサ利用時」の計測
+
+$ source $CNTKROOT/activate-cntk
+$ cd imagenet1k
+$ ulimit -s 32767
+$ ./run-single.sh
+
+(5)「複数スループットプロセッサ利用時」の計測
+
+$ source $CNTKROOT/activate-cntk
+$ cd imagenet1k
+$ ulimit -s 32767
+$ ./run-parallel.sh
+
 1. 訓練イメージおよび検証イメージの準備
 
-本節では、「4.8 畳み込みニューラルネットワーク(CNN)の処理性能」で使用するイメージの準備方法を解説する。イメージの準備は、(1) 配布元からのオリジナルイメージの入手と展開、(2) マップファイル作成の2段階の手順からなる。以下、順に説明する。
+本節では、「4.10 畳み込みニューラルネットワーク(CNN)の処理性能」で使用するイメージの準備方法を解説する。イメージの準備は、(1) 配布元からのオリジナルイメージの入手と展開、(2) マップファイル作成の2段階の手順からなる。以下、順に説明する。
 
 (1) 配布元からの訓練イメージおよび検証イメージの入手と展開
 
